@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="color-scheme" content="dark" />
+<title>Cedar Exchange — Fictional Stock Market Simulator</title>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<div id="app" class="app-shell">
+  <aside class="sidebar" aria-label="Primary navigation">
+    <div class="brand"><div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span><span></span></div><div><strong>CEDAR<span>EXCHANGE</span></strong><small>FICTIONAL MARKET SIMULATOR</small></div></div>
+    <nav id="sideNav" class="side-nav">
+      <button data-nav="dashboard" class="nav-link active"><span class="nav-ico">▦</span> Overview</button>
+      <button data-nav="market" class="nav-link"><span class="nav-ico">▤</span> Companies</button>
+      <button data-nav="pulse" class="nav-link"><span class="nav-ico">◉</span> MarketPulse <span id="pulseCount" class="nav-count"></span></button>
+      <button data-nav="portfolio" class="nav-link"><span class="nav-ico">◈</span> Portfolio</button>
+      <button data-nav="academy" class="nav-link"><span class="nav-ico">◇</span> Field Guide</button>
+    </nav>
+    <div class="sidebar-bottom"><span class="status-dot"></span> Offline simulation<br><small>All companies, posts & prices are fictional.</small><button class="reset-link" data-action="reset">Reset simulation ↺</button></div>
+  </aside>
+  <div class="workspace">
+    <header class="topbar">
+      <div class="topbar-title"><div class="mobile-brand">CEDAR<span>EXCHANGE</span></div><span class="eyebrow">THE TRADING FLOOR</span><strong id="viewHeading">Overview</strong></div>
+      <div class="market-clock"><span class="status-dot"></span> MARKET OPEN <span class="clock-sep">/</span> <strong id="dayLabel">DAY 01</strong> <span class="clock-sep">/</span> <span id="cycleLabel">Balanced economy</span></div>
+    </header>
+    <main id="main" class="main-content" tabindex="-1" aria-live="polite"></main>
+    <footer class="timebar" aria-label="Simulation time controls">
+      <div class="time-caption"><span class="time-ico">◷</span><div><strong>Simulation clock</strong><small id="clockStatus">Paused · Advance at your own pace</small></div></div>
+      <div class="time-actions"><button class="btn btn-ghost" data-action="advance" data-days="1">+1 Day</button><button class="btn btn-ghost" data-action="advance" data-days="5">+5 Days</button><button class="btn btn-ghost btn-hidden-mobile" data-action="advance" data-days="20">+20 Days</button><div class="speed-wrap"><label class="sr-only" for="speedSelect">Automatic simulation speed</label><select id="speedSelect" aria-label="Automatic simulation speed"><option value="slow">Auto · 1×</option><option value="fast">Auto · 4×</option></select></div><button id="toggleAuto" class="btn btn-primary" data-action="toggleauto">▶ Run</button></div>
+    </footer>
+  </div>
+</div>
+<div id="overlay" class="overlay hidden" aria-hidden="true"></div>
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+<script src="app.js"></script>
+</body>
+</html>
