@@ -24,14 +24,14 @@
     28:{ticker:'PRDS',impact:0.075,priceShock:0.028,mood:0.10,headline:'Paradise Resorts bookings rebound following promotional campaign',detail:'An improvement after a slump matters, but investors will assess whether discounts hurt margins.',official:'Room bookings have improved after our seasonal promotional campaign.',question:'Can higher booking volume still come with disappointing profit?'}
   };
   const $ = id => document.getElementById(id);
-  const ui = {view:'dashboard',company:'HARB',postId:null,postFilter:'all',marketFilter:'all',tradeTicker:null,tradeSide:'buy',autoTimer:null,speed:'slow',toastTimer:null,orderType:'market',eventAlert:null,tradeQty:1};
+  const ui = {chartTicker:'HARB',view:'dashboard',company:'HARB',postId:null,postFilter:'all',marketFilter:'all',tradeTicker:null,tradeSide:'buy',autoTimer:null,speed:'slow',toastTimer:null,orderType:'market',eventAlert:null,tradeQty:1};
   const money = n => (n<0?'−':'')+'$'+Math.abs(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
   const pct = (n,d=2) => (n>=0?'+':'−')+Math.abs(n*100).toFixed(d)+'%';
   const signed = n => `<span class="${n>0.000001?'pos':n<-.000001?'neg':'neutral'}">${pct(n)}</span>`;
   const round = (n,d=2) => Math.round(n*Math.pow(10,d))/Math.pow(10,d);
   const escapeHtml = t => String(t??'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const company = t => state.companies.find(c=>c.ticker===t);
-  const startup = () => ({version:1, rng:91371823, day:1,cash:STARTING_CASH,realized:0,holdings:{},watchlist:['HARB','EDGR'],companies:COMPANY_SEEDS.map(s=>({...s,history:[s.price],previous:s.price,change:0,sentiment:0,priceReason:'The exchange has just opened. Study companies before deciding to trade.'})),news:[],posts:[],trades:[],macro:{confidence:53,inflation:2.4,rate:3.8},postSeq:1,minuteOfDay:0,orders:[],orderSeq:1,dayOpeningEquity:STARTING_CASH,dayOpeningPrices:{},lastEvent:null});
+  const startup = () => ({version:1, rng:91371823, day:1,cash:STARTING_CASH,realized:0,holdings:{},watchlist:['HARB','EDGR'],companies:COMPANY_SEEDS.map(s=>({...s,history:[s.price],previous:s.price,change:0,sentiment:0,priceReason:'The exchange has just opened. Study companies before deciding to trade.'})),news:[],posts:[],trades:[],macro:{confidence:53,inflation:2.4,rate:3.8},postSeq:1,minuteOfDay:0,orders:[],orderSeq:1,dayOpeningEquity:STARTING_CASH,dayOpeningPrices:{},lastEvent:null,liveTrace:[],previousTrace:[]});
   let state;
   try {const raw=localStorage.getItem(STORE);const parsed=raw?JSON.parse(raw):null;state=parsed?.version===1 && Array.isArray(parsed.companies) && parsed.companies.length===6?parsed:startup();} catch {state=startup();}
   // Migrate existing version-1 browser saves in place: never reset cash, holdings or histories.
@@ -66,6 +66,9 @@
   if (!state.posts.length) startupFeed();
   const navLabel = {dashboard:'My Money',market:'Live Market',pulse:'MarketPulse',portfolio:'Trade History',academy:'Field Guide'};
   const getEquity = () => state.cash+Object.entries(state.holdings).reduce((v,[t,h])=>v+h.qty*company(t).price,0);
+  state.liveTrace=Array.isArray(state.liveTrace)?state.liveTrace:[];
+  state.previousTrace=Array.isArray(state.previousTrace)?state.previousTrace:[];
+  if(!state.liveTrace.length)state.liveTrace=[{day:state.day,minute:570,equity:state.dayOpeningEquity,prices:{...state.dayOpeningPrices}}];
   const invested = () => getEquity()-state.cash;
   const unrealized = () => Object.entries(state.holdings).reduce((v,[t,h])=>v+(company(t).price-h.avg)*h.qty,0);
   const exposure = () => Object.values(state.holdings).reduce((v,h)=>v+h.qty,0);
@@ -84,13 +87,48 @@
   }
   const pill = c=>`<span class="pill ${c.category==='Cyclical'?'warn':c.category==='Growth'?'blue':''}">${c.category}</span>`;
   function sectionIntro(label,title,desc){return `<div class="kicker"><span class="tiny-bar"></span>${label}</div><h1 class="page-heading">${title}</h1><p class="page-sub">${desc}</p>`}
+
+  // Visual price and wealth history: an optional layer over the existing 0.2 market engine.
+  function snapshotTrace() {
+    const point={day:state.day,minute:state.minuteOfDay,equity:round(getEquity()),prices:Object.fromEntries(state.companies.map(c=>[c.ticker,c.price]))};
+    if(!Array.isArray(state.liveTrace))state.liveTrace=[];
+    if(state.liveTrace.length&&state.liveTrace[state.liveTrace.length-1].minute===point.minute)state.liveTrace[state.liveTrace.length-1]=point;
+    else state.liveTrace.push(point);
+    if(state.liveTrace.length>45)state.liveTrace.shift();
+  }
+  function traceHistory(){
+    if(state.liveTrace&&state.liveTrace.length>1)return {points:state.liveTrace,old:false};
+    if(state.previousTrace&&state.previousTrace.length>1)return {points:state.previousTrace,old:true};
+    return {points:state.liveTrace||[],old:false};
+  }
+  function liveGraph(mode){
+    const isStock=mode==='market',c=company(ui.chartTicker)||state.companies[0];
+    const t=traceHistory();
+    const values=t.points.map(p=>isStock?(p.prices&&p.prices[c.ticker])||c.price:p.equity);
+    if(!values.length)values.push(isStock?c.price:getEquity());
+    if(values.length===1)values.push(values[0]);
+    const base=values[0],end=values[values.length-1],gain=end-base;
+    const min=Math.min(...values),max=Math.max(...values),spread=Math.max(.05,max-min,base*.0005),low=min-spread*.25,high=max+spread*.25;
+    const xx=i=>32+i/(values.length-1)*704, yy=v=>197-(v-low)/(high-low)*171;
+    const pts=values.map((v,i)=>[xx(i),yy(v)]);
+    const path=pts.map((p,i)=>(i?'L':'M')+p[0].toFixed(1)+' '+p[1].toFixed(1)).join(' ');
+    const last=pts[pts.length-1],first=pts[0],color=gain>=0?'#60dfae':'#fb7e8a',ident=isStock?'marketgraphfill':'wealthgraphfill';
+    const area=path+' L '+last[0].toFixed(1)+' 203 L '+first[0].toFixed(1)+' 203 Z';
+    const guides=[52,110,168].map(y=>'<line x1="32" y1="'+y+'" x2="736" y2="'+y+'" stroke="#4b6177" stroke-opacity=".3" stroke-dasharray="3 7"/>').join('');
+    const svg='<svg class="live-plot" role="img" aria-label="'+escapeHtml(isStock?'Intraday price chart for '+c.name:'Intraday value chart for your portfolio')+'" viewBox="0 0 768 224" preserveAspectRatio="none"><defs><linearGradient id="'+ident+'" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="'+color+'" stop-opacity=".27"/><stop offset="100%" stop-color="'+color+'" stop-opacity="0"/></linearGradient></defs>'+guides+'<path d="'+area+'" fill="url(#'+ident+')"/><path d="'+path+'" stroke="'+color+'" stroke-width="3.2" fill="none" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke"/><circle cx="'+last[0]+'" cy="'+last[1]+'" r="5" fill="'+color+'" stroke="#081323" stroke-width="2"/><text x="32" y="220" fill="#9db1c5" font-size="12">9:30 AM</text><text x="736" y="220" text-anchor="end" fill="#9db1c5" font-size="12">'+(t.old?'Prior close':timeLabel(Math.max(570,Math.min(960,state.minuteOfDay))))+'</text></svg>';
+    const tickerPicker=isStock?'<label class="graph-picker">Watch: <select id="chartTicker" aria-label="Choose a stock chart">'+state.companies.map(x=>'<option value="'+x.ticker+'" '+(c.ticker===x.ticker?'selected':'')+'>'+escapeHtml(x.name)+'</option>').join('')+'</select></label>':'<span class="graph-desc">CASH + ALL YOUR SHARES</span>';
+    const status=ui.autoTimer&&openNow()?'<span class="plot-live">● LIVE</span>':'<span class="plot-idle">'+(t.old?'PREVIOUS TRADING SESSION':openNow()?'PAUSED':'REGULAR MARKET CLOSED')+'</span>';
+    return '<section class="panel trading-graph"><div class="graph-heading"><div><span class="kicker">'+(isStock?'MARKET PRICE IN MOTION':'YOUR WEALTH IN MOTION')+'</span><h2>'+(isStock?escapeHtml(c.name):'Live portfolio value')+'</h2></div>'+status+'</div><div class="graph-meta"><strong class="graph-money">'+money(end)+'</strong><span class="'+(gain>=0?'pos':'neg')+' graph-difference">'+(gain>=0?'+':'−')+money(Math.abs(gain))+' ('+pct(base?gain/base:0)+')</span></div><div class="graph-canvas">'+svg+'</div><div class="graph-bottom">'+tickerPicker+'<span class="graph-note">'+(t.points.length<2?'The chart will begin moving during the next trading session.':t.old?'Previous market session shown until new trading begins.':'New points appear every simulated 15 minutes while trading is open.')+'</span></div></section>';
+  }
+
   const stat=(label,value,sub,extra='')=>`<div class="panel statcard"><div class="stat-label">${label}<span>${extra}</span></div><div class="stat-value">${value}</div><div class="small-desc">${sub}</div></div>`;
-  function marketRows(limit=6) {return `<div class="live-market-list">${state.companies.slice(0,limit).map(c=>{const important=Math.abs(liveMove(c))>=.01||c.lastEventDay===state.day;return `<div class="live-company" data-company="${c.ticker}" tabindex="0"><div class="live-company-head"><div class="live-company-title"><span class="big-symbol small">${c.icon}</span><div><strong>${escapeHtml(c.name)}</strong><small>${c.ticker} · ${escapeHtml(c.sector)}</small></div></div><div class="align-r"><strong class="live-price">${money(c.price)}</strong><div>${signed(liveMove(c))} <span class="muted micro">today</span></div></div></div>${important?`<p class="movement-reason">${escapeHtml(c.priceReason)}</p>`:''}</div>`}).join('')}</div>`;}
+  function marketRows(limit=6) {return `<div class="live-market-list">${state.companies.slice(0,limit).map(c=>{const important=Math.abs(liveMove(c))>=.01||c.lastEventDay===state.day;const points=traceHistory().points.map(p=>(p.prices&&p.prices[c.ticker])||c.price);return `<div class="live-company" data-company="${c.ticker}" tabindex="0"><div class="live-company-head"><div class="live-company-title"><span class="big-symbol small">${c.icon}</span><div><strong>${escapeHtml(c.name)}</strong><small>${c.ticker} · ${escapeHtml(c.sector)}</small></div></div><div class="align-r"><strong class="live-price">${money(c.price)}</strong><div>${signed(liveMove(c))} <span class="muted micro">today</span></div></div></div><div class="market-mini-chart">${sparkline(points.length>1?points:c.history.slice(-18),liveMove(c)>=0?"#60dfae":"#fb7e8a",48,260)}</div>${important?`<p class="movement-reason">${escapeHtml(c.priceReason)}</p>`:''}</div>`}).join('')}</div>`;}
   function newsBlock(count=4){return `<div class="panel panel-pad"><div class="section-head"><h2>Market bulletin</h2><span class="pill blue">SIMULATED</span></div>${state.news.slice(0,count).map(n=>`<div class="news-item"><div class="news-meta"><span>${n.ticker}</span> · Day ${n.day}</div><strong>${escapeHtml(n.title)}</strong><p>${escapeHtml(n.detail)}</p></div>`).join('')}</div>`}
   function dashboard(){
     const daily=dayChange(),total=portfolioDelta(),held=Object.entries(state.holdings).filter(([,h])=>h.qty>0);
     return `${sectionIntro('YOUR MONEY','Your financial dashboard','Watch your money change as the market moves. You do not need to trade every session.')}
     <div class="hero-wealth panel"><div class="kicker">TOTAL WEALTH — CASH + SHARES</div><div class="wealth-number">${money(getEquity())}</div><div class="wealth-today ${daily>=0?'pos':'neg'}">${daily>=0?'▲':'▼'} ${money(daily)} ${pct(daily/Math.max(1,state.dayOpeningEquity))} today</div><div class="wealth-foot"><span>Since starting: <b class="${total>=0?'pos':'neg'}">${money(total)} (${pct(total/STARTING_CASH)})</b></span><span>${tradingDay()?'Trading day':'Weekend — regular market closed'}</span></div></div>
+    <div class="below-gap">${liveGraph("wealth")}</div>
     <div class="grid two below-gap">${stat('CASH AVAILABLE',money(state.cash),'Money you can use to buy shares','◉')}${stat('VALUE OF YOUR SHARES',money(invested()),`${exposure()} shares currently owned`,'▦')}</div>
     <div class="panel panel-pad below-gap"><div class="section-head"><h2>Your stocks today</h2><button class="tiny-link" data-nav="portfolio">Orders & history →</button></div>${held.length?held.map(([t,h])=>{const c=company(t),mv=state.dailyStockPnl[t]||0;return `<div class="held-line" data-company="${t}"><div><strong>${c.icon} ${escapeHtml(c.name)}</strong><small>${h.qty} shares · ${money(h.qty*c.price)} current value</small></div><div class="align-r ${mv>=0?'pos':'neg'}"><strong>${money(mv)}</strong><small>your shares’ gain/loss today</small></div></div>`}).join(''):'<div class="friendly-empty">You haven’t bought any shares yet. Your $10,000 is safe as cash. Explore the Live Market when you feel curious.</div>'}</div>
     ${state.lastEvent?.day===state.day?`<div class="notice below-gap"><strong>Today’s developing story:</strong> ${escapeHtml(state.lastEvent.headline)} <button class="tiny-link" data-action="viewcompany" data-ticker="${state.lastEvent.ticker}">See company →</button></div>`:''}
@@ -98,6 +136,7 @@
   }
   function market(){return `${sectionIntro('WATCH THE EXCHANGE','Live Market','Prices update while regular trading is open. Big moves come with plain-English explanations.')}
     <div class="panel panel-pad session-banner"><div><strong>${openNow()?'● Regular trading is open':tradingDay()?'◷ Regular trading is closed':'◷ Weekend — market closed'}</strong><p>${tradingDay()?'Regular session: 9:30 AM–4:00 PM Eastern.':'Company stories and social posts can still develop outside weekday trading.'}</p></div><button class="btn btn-ghost" data-nav="dashboard">See my money →</button></div>
+    <div class="below-gap">${liveGraph("market")}</div>
     ${marketRows(6)}<div class="below-gap">${newsBlock(2)}</div>
     <p class="hint below-gap">A change in price is not always caused by a headline. If no clear event occurred, we'll say so. Tap a company for more details.</p>`;}
   function companyDetail(){
@@ -179,9 +218,11 @@
     }
   };
   function newDay(){
+    if(state.liveTrace&&state.liveTrace.length>1)state.previousTrace=state.liveTrace.slice();
     state.day++;state.minuteOfDay=0;
     state.dayOpeningEquity=getEquity();state.dayOpeningPrices={};state.dailyStockPnl={};
     for(const c of state.companies){c.prevClose=c.price;state.dayOpeningPrices[c.ticker]=c.price;c.change=0;c.lastEventDay=0;c.priceReason='The new day has not begun regular trading yet.';}
+    state.liveTrace=[{day:state.day,minute:570,equity:state.dayOpeningEquity,prices:{...state.dayOpeningPrices}}];
     state.macro.confidence=Math.max(28,Math.min(77,state.macro.confidence+(random()-.49)*2.7));
     state.macro.inflation=Math.max(1,Math.min(6,state.macro.inflation+(random()-.51)*.035));
     state.macro.rate=Math.max(1,Math.min(7,state.macro.rate+(random()-.51)*.013));
@@ -217,10 +258,10 @@
     if(openNow()){
       // An opening gap reflects overnight reassessment before queued orders can fill.
       if(prior<570){for(const c of state.companies){const previousPrice=c.price;const gap=(state.macro.confidence-50)/4500*c.cyclical+(random()-.5)*.012*c.volatility;c.price=round(Math.max(.5,c.price*(1+gap)));c.change=liveMove(c);const heldShares=state.holdings[c.ticker]?.qty||0;if(heldShares)state.dailyStockPnl[c.ticker]=round((state.dailyStockPnl[c.ticker]||0)+heldShares*(c.price-previousPrice));c.priceReason='The opening price reflects overnight expectations and uncertainty; there is not necessarily fresh company news.';}processOrders();}
-      tradingTick();processOrders();
+      tradingTick();processOrders();snapshotTrace();
     }
     const event=timedNews();
-    if(state.minuteOfDay===960&&tradingDay())for(const c of state.companies){c.history.push(c.price);if(c.history.length>65)c.history.shift();}
+    if(state.minuteOfDay===960&&tradingDay()){snapshotTrace();for(const c of state.companies){c.history.push(c.price);if(c.history.length>65)c.history.shift();}}
     if(event)pauseAuto(false);
     if(state.minuteOfDay%360===0)pauseAuto(false);
     save();render();
@@ -256,7 +297,7 @@
   });
   document.addEventListener('keydown',e=>{if(e.key==='Escape'&&ui.tradeTicker)closeModal();if((e.key==='Enter'||e.key===' ')&&e.target.matches('[data-post]')){e.preventDefault();ui.postId=Number(e.target.dataset.post);go('pulse');}});
   document.addEventListener('input',e=>{if(e.target.id==='tradeQty'&&ui.tradeTicker){const qty=Number(e.target.value)||0;ui.tradeQty=qty;$('tradeTotal').textContent=money(qty*company(ui.tradeTicker).price);$('tradeError').textContent='';}});
-  document.addEventListener('change',e=>{if(e.target.id==='tradeType'&&ui.tradeTicker){ui.tradeQty=Number($('tradeQty')?.value)||1;ui.orderType=e.target.value;renderModal();}});
+  document.addEventListener('change',e=>{if(e.target.id==='chartTicker'){ui.chartTicker=e.target.value;render();}if(e.target.id==='tradeType'&&ui.tradeTicker){ui.tradeQty=Number($('tradeQty')?.value)||1;ui.orderType=e.target.value;renderModal();}});
   $('speedSelect').addEventListener('change',e=>{let wasRunning=ui.autoTimer!==null;if(wasRunning)pauseAuto();ui.speed=e.target.value;if(wasRunning)runAuto();else render();});
   $('overlay').addEventListener('click',e=>{if(e.target.id==='overlay')closeModal();});
   // Public debug state for browser smoke-testing. No user data leaves the device.
